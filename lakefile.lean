@@ -10,9 +10,16 @@ lean_lib «Waterfall» {
 }
 
 @[default_target]
-lean_exe «wtf» {
-  root := `Main
+lean_exe server {
+  root := `Server
 }
 
--- require std from git "http://github.com/leanprover/std4.git" @ "main"
+@[default_target]
+lean_exe client {
+  root := `Client
+}
+
 require Cli from git "http://github.com/mhuisi/lean4-cli.git" @ "nightly"
+require Std from git "https://github.com/leanprover/std4" @ "main"
+require socket from git "https://github.com/hargoniX/socket.lean" @ "main"
+require Http from git "https://github.com/JamesGallicchio/http" @ "main"
