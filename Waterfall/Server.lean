@@ -32,13 +32,20 @@ def main (port : UInt16) : IO Unit := do
         done := acc.size.toUSize >= SIZE_MAX_PACK
     
     IO.println <| s!"Received {acc.size} bytes"
+
     let str : String := String.fromUTF8Unchecked acc
-    IO.println str
     match
-      Http.Request.parse (Parser.takeMany Parser.anyToken)
+      Http.Request.parse (
+        Http.Parser.capture <| Parser.dropMany Parser.anyToken)
       |>.run str
     with
     | .error e =>
+      IO.println "failed to parse HTTP request!"
       IO.println e
-    | .ok _ req =>
-      IO.println req.toRequestString
+    | .ok _s req =>
+    match Lean.Json.parse req.body.toString with
+    | .error e =>
+      IO.println "failed to parse JSON body!"
+      IO.println e
+    | .ok json =>
+    IO.println (json.pretty)

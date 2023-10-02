@@ -4,7 +4,7 @@
  [{"git":
    {"url": "https://github.com/JamesGallicchio/http",
     "subDir?": null,
-    "rev": "5bbbf18661af776d1fac62b2b0ab2bb8c345042c",
+    "rev": "76c722ed88593aa4615e71be7d79ae348282169e",
     "opts": {},
     "name": "Http",
     "inputRev?": "main",
