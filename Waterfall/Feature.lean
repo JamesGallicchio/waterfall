@@ -8,9 +8,12 @@ namespace Waterfall
 
   The canonical implementation is [GitHub].
 -/
-class RepoHost.{u} where
+structure RepoHostType.{u} where
   (repoId featId commitId : Type u)
 
-structure FeatureInfo (host : RepoHost) where
-  parent : host.featId
-  (base head : host.commitId)
+structure FeatureInfo (tys : RepoHostType) where
+  parent : tys.featId
+  (base head : tys.commitId)
+
+structure RepoHost.{u} (tys : RepoHostType.{u}) (m : Type u → Type u) [Monad m] where
+  getFeatureInfo : m (FeatureInfo tys)
