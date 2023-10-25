@@ -46,11 +46,31 @@ where parser : Http.Parser (Http.Response String) :=
   Http.Response.parse (Http.Parser.capture (Parser.dropMany Parser.anyToken) |>.map (·.toString))
 
 def test := do
-  let req := GitHub.«apps/list-installations»
+  let req :=
+    GitHub.«apps/create-installation-access-token»
+      (installation_id := 41592663)
+      (body := .obj Lean.RBNode.leaf)
+  let res :=
+    GitHub.«apps/create-installation-access-token».getResponse
+      (← request req)
 
-  let req := GitHub.«apps/create-installation-access-token» 41592663 (.obj Lean.RBNode.leaf)
-  IO.println req.toRequestString
-  let res ← request req
-  IO.println res.body
+  match res with
+  | .error e =>
+    IO.println s!"error processing response: {e}"
+  | .ok (.«201» res) =>
+    let (tok, exp) ← IO.ofExcept <| do
+      let tok ← (← res.body.getObjVal? "token").getStr?
+      let exp ← (← res.body.getObjVal? "expires_at").getStr?
+      return (tok,exp)
+    IO.println s!"got token {tok}"
+    IO.println s!"expires at {exp}"
+  | .ok (.«401» res) =>
+    IO.println s!"failed to auth: {res.body}"
+  | .ok (.«403» res) =>
+    IO.println s!"forbidden: {res.body}"
+  | .ok (.«404» res) =>
+    IO.println s!"resource not found: {res.body}"
+  | .ok (.«422» res) =>
+    IO.println s!"validation error: {res.body}"
 
---#eval test
+#eval test

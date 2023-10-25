@@ -12,7 +12,7 @@
   {"git":
    {"url": "http://github.com/JamesGallicchio/lean-openapi",
     "subDir?": null,
-    "rev": "894e3cea0dc9cd025e9218c85b1ffea9e614fe57",
+    "rev": "93dd494eaf33093b26195b1ca9e8b7bf241c47d9",
     "opts": {},
     "name": "«lean-openapi»",
     "inputRev?": "main",
