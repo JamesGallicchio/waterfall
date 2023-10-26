@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+
+PORT=
+DOMAIN=
+GH_APP_ID=
+PKEY_PATH=
+
+./ngrok http 127.0.0.1:$PORT --domain=$DOMAIN > /dev/null &
+
+./build/bin/server --port $PORT --gh-app-id $GH_APP_ID --pkey $(cat $PKEY_PATH)
+
+wait

@@ -1,4 +1,4 @@
-import Waterfall
+import Waterfall.Server
 
-def main (args : List String) : IO Unit :=
-  Waterfall.Server.main args[0]!.toNat!.toUInt16
+def main (args : List String) : IO UInt32 :=
+  Waterfall.Server.startServerCmd.validate args
