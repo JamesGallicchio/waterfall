@@ -1,5 +1,8 @@
 
-/-! Defines features and the feature tree. -/
+/-! Waterfall repositories are defined by
+the operations that can be done on them.
+This is because the backend might be any version control system.
+-/
 
 namespace Waterfall
 
@@ -17,3 +20,5 @@ structure FeatureInfo (tys : RepoHostTypes) where
 
 structure RepoHost.{u} (tys : RepoHostTypes.{u}) (m : Type u → Type u) [Monad m] where
   getFeatureInfo : tys.featId → m (FeatureInfo tys)
+  createFeature : FeatureInfo tys → m tys.featId
+  rebase : tys.featId → tys.featId → ExceptT RebaseError m PUnit
