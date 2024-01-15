@@ -46,6 +46,11 @@ inductive GetFeatureInfo.Error  : Type u
 | invalidFeat (feat : tys.featId)
 | other (err : String)
 
+instance [ToString tys.featId] : ToString (GetFeatureInfo.Error tys) where
+  toString
+    | .invalidFeat feat => s!"invalid feature: {feat}"
+    | .other err => s!"{err}"
+
 abbrev GetFeatureInfo :=
   (repo : tys.repoId) →
   (feat : tys.featId) →
@@ -56,6 +61,13 @@ inductive CreateFeature.Error : Type u
 | invalidFeat (feat : tys.featId)
 | invalidCommit (commit : tys.commitId)
 | other (err : String)
+
+instance [ToString tys.repoId] [ToString tys.featId] [ToString tys.commitId] : ToString (CreateFeature.Error tys) where
+  toString
+    | .invalidName n => s!"invalid feature: {n}"
+    | .invalidFeat feat => s!"invalid feature: {feat}"
+    | .invalidCommit c => s!"invalid feature: {c}"
+    | .other err => s!"{err}"
 
 inductive RebaseError : Type u
 | invalidFeat (feat : tys.featId)
