@@ -1,4 +1,5 @@
 import Waterfall.Core.RepoHost
+import Std
 
 namespace Waterfall.Git
 
@@ -58,10 +59,10 @@ def RefPart.valid (s : String) : Bool :=
   !String.isEmpty s && s.all (fun c => c.isAlphanum || c ∈ ['-','_'])
 
 def RefPart := { s // RefPart.valid s }
-deriving DecidableEq
+deriving DecidableEq, Repr, Hashable
 
 def Ref := { L : List RefPart // L.length > 0 }
-deriving DecidableEq
+deriving DecidableEq, Repr, Hashable
 
 def Ref.toString (r : Ref) : String :=
   match r with
@@ -94,33 +95,50 @@ end
 def Ref.append (r1 r2 : Ref) : Ref :=
   ⟨r1.val ++ r2.val, by simp; apply Nat.le_trans; apply r1.property; apply Nat.le_add_right⟩
 
-instance : Coe RefPart Ref := ⟨(⟨[·], by simp; decide⟩)⟩
+instance : Coe RefPart Ref := ⟨(⟨[·], by simp⟩)⟩
 
 def RefPart.static (s : String) (h : RefPart.valid s := by decide) : RefPart := ⟨s, h⟩
+def Ref.static (s : String) (h : (Ref.ofString s).isOk := by decide) : Ref :=
+  match Ref.ofString s, h with
+  | .ok ref, _ => ref
+  | .error _, h => by contradiction
+
+instance : Inhabited Ref := ⟨Ref.static "a"⟩
 
 /-- Update a reference in the git repo.
 
 If `hash` is none, we attempt to delete `ref`.
 If `oldHash` is none, we expect `ref` to be currently nonexistent.
 
+Returns true if the operation succeeds,
+false if the old hash was wrong,
+and error if a different error occurs.
+
 **Note:** ALWAYS checks that the old value is correct.
 This is the only way to avoid race conditions.
  -/
 def updateRef (root : System.FilePath) (ref : Ref) (hash : Option Hash) (oldHash : Option Hash)
-  : ExceptT String IO Unit := do
+  : ExceptT String IO Bool := do
   let args := match hash with
     | none => #["-d", ref.toString, oldHash.getD ""]
     | some hash => #[ref.toString, hash, oldHash.getD ""]
 
-  let child ← IO.Process.spawn {
+  let out ← IO.Process.output {
     cmd := "git"
-    args := #["update-ref"] ++ args
+    -- TODO: reflog not an ideal way to keep git gc from deleting waterfall objects
+    args := #["update-ref", "--create-reflog"] ++ args
     cwd := root
   }
-  let exitCode ← child.wait
 
-  if exitCode != 0 then
-    throw s!"git update-ref: exited with {exitCode} setting {ref} to {hash} from {oldHash}"
+  if out.exitCode = 0 then
+    return true
+  else
+    if out.stderr.containsSubstr "but expected"
+      || out.stderr.containsSubstr "already exists"
+      || out.stderr.containsSubstr "unable to resolve" then
+      return false
+    else
+      throw s!"git update-ref: setting {ref} to {hash} from {oldHash}:\n{out.stderr}"
 
 /-- Get the hash that `ref` points to in the git repo,
 or `none` if it is undefined. -/
@@ -183,17 +201,15 @@ def Ref.toBranch : Ref → Option Ref
   commitId := String
 
 def waterfallConfig : Ref :=
-  Ref.append (RefPart.static "refs") <|
-  RefPart.static "waterfall-config"
+  Ref.append (RefPart.static "waterfall") <|
+  RefPart.static "config"
 
-def waterfallLock : Ref :=
-  Ref.append (RefPart.static "refs") <|
-  RefPart.static "waterfall-lock"
+def waterfallLock (root : System.FilePath) : System.FilePath :=
+  root / ".git" / "waterfall" / "waterfall.lock"
 
 def waterfallRef (feat : Types.featId) : Ref :=
-  Ref.append (RefPart.static "refs") <|
   Ref.append (RefPart.static "waterfall") <|
-  Ref.append (RefPart.static "heads") <|
+  Ref.append (RefPart.static "feats") <|
   feat
 
 def gitHead (feat : Types.featId) : Ref :=
@@ -202,53 +218,35 @@ def gitHead (feat : Types.featId) : Ref :=
   feat
 
 def withWaterfallLock (root : System.FilePath) (f : Unit → IO α) : IO α := do
-  let num := toString (← IO.rand 1 1000000000)
-
-  while !(← updateRef root waterfallLock (some num) none).isOk do
-    IO.sleep 200
+  let handle ← IO.FS.Handle.mk (waterfallLock root) .write
+  IO.FS.Handle.lock handle
 
   let res ← f ()
 
-  match ← updateRef root waterfallLock none (some num) with
-    | .ok () => pure ()
-    | .error e =>
-      IO.eprint s!"waterfall lockfile touched during withWaterfallLock: {e}"
-
+  IO.FS.Handle.unlock handle
   return res
 
 structure RepoConfig where
   rootFeat : Types.featId
 deriving Lean.ToJson, Lean.FromJson
 
+def getConfig (repo : System.FilePath)
+  : ExceptT String IO (Hash × RepoConfig) := do
+  match ← getRef repo waterfallConfig with
+  | none =>
+    throw s!"{waterfallConfig} not defined?"
+  | some hash =>
+  let data ← getObject repo hash
+  let json ← Lean.Json.parse data
+  let info ← Lean.fromJson? json
+  return (hash, info)
+
 structure FeatureData extends FeatureInfo Types where
   children : List Types.featId
-deriving Lean.ToJson, Lean.FromJson
-
-def updateFeatureData (repo : System.FilePath) (id : Types.featId) (data : FeatureData) (old : Option Hash)
-    : ExceptT (RepoHost.CreateFeature.Error Types) IO Unit := do
-  let json := Lean.toJson data
-  let data := json.compress
-  let hash ← ExceptT.adapt .other <| storeObject repo data
-  ExceptT.adapt .invalidName <| updateRef repo (waterfallRef id) hash old
-
-def initWaterfall (root : System.FilePath) (main : Ref) : IO Unit :=
-  withWaterfallLock root fun () => do
-  match ← IO.ofExcept <| ← getRef root (gitHead main) with
-  | none => throw (.userError s!"branch {main} doesn't have an entry in refs/heads")
-  | some headCommit =>
-  IO.ofExcept <| ← updateFeatureData root main {
-    parent := none
-    base := headCommit, head := headCommit
-    children := []
-  } none
-  let config : RepoConfig := {
-    rootFeat := main
-  }
-  let configHash ← IO.ofExcept <| ← storeObject root (Lean.toJson config).compress
-  IO.ofExcept <| ← updateRef root waterfallConfig configHash none
+deriving Lean.ToJson, Lean.FromJson, Repr
 
 def getFeatureData (repo : System.FilePath) (feat : Ref)
-    : ExceptT (RepoHost.GetFeatureInfo.Error Types) IO FeatureData := do
+    : ExceptT (RepoHost.GetFeatureInfo.Error Types) IO (Hash × FeatureData) := do
   match ← ExceptT.adapt .other <|
     getRef repo (waterfallRef feat)
   with
@@ -258,11 +256,55 @@ def getFeatureData (repo : System.FilePath) (feat : Ref)
   let data ← ExceptT.adapt .other <| getObject repo hash
   let json ← ExceptT.adapt .other <| Lean.Json.parse data
   let info ← ExceptT.adapt .other <| Lean.fromJson? json
-  return info
+  return (hash, info)
+
+def tryUpdateFeatureData (repo : System.FilePath) (id : Types.featId) (data : FeatureData) (old : Option Hash)
+    : ExceptT String IO Bool := do
+  let json := Lean.toJson data
+  let data := json.compress
+  let hash ← storeObject repo data
+  updateRef repo (waterfallRef id) hash old
+
+partial def updateFeatureData (repo : System.FilePath) (id : Types.featId)
+      (f : Option FeatureData → ExceptT (RepoHost.CreateFeature.Error Types) IO (Option FeatureData))
+    : ExceptT (RepoHost.CreateFeature.Error Types) IO Unit := do
+  while true do
+    let (hash, data) ← ExceptT.adapt fromFt <| getFeatureData repo id
+    match ← f data with
+    | none =>
+    if ← ExceptT.adapt .other <| updateRef repo (waterfallRef id) none hash then
+      return
+    | some newData =>
+    if ← ExceptT.adapt .other <| tryUpdateFeatureData repo id newData hash then
+      return
+
+where
+  fromFt : RepoHost.GetFeatureInfo.Error Types → RepoHost.CreateFeature.Error Types
+  | .invalidFeat feat => .invalidFeat feat
+  | .other err => .other err
+
+def initWaterfall (root : System.FilePath) (main : Ref) : IO Unit :=
+  withWaterfallLock root fun () => do
+  match ← IO.ofExcept <| ← getRef root (gitHead main) with
+  | none => throw (.userError s!"branch {main} doesn't have an entry in refs/heads")
+  | some headCommit =>
+  let mainData := {
+      parent := none
+      base := headCommit, head := headCommit
+      children := []
+    }
+  let .true ← IO.ofExcept <| ← tryUpdateFeatureData root main mainData none
+    | throw (.userError s!"feature {main} already exists")
+  let config : RepoConfig := {
+    rootFeat := main
+  }
+  let configHash ← IO.ofExcept <| ← storeObject root (Lean.toJson config).compress
+  let .true ← IO.ofExcept <| ← updateRef root waterfallConfig configHash none
+    | throw (.userError s!"config ref {waterfallConfig} already exists")
 
 def getFeatureInfo (repo : System.FilePath) (feat : Ref)
     : ExceptT (RepoHost.GetFeatureInfo.Error Types) IO (FeatureInfo Types) :=
-  getFeatureData repo feat |>.map (·.toFeatureInfo)
+  getFeatureData repo feat |>.map (·.2.toFeatureInfo)
 
 def checkIsFeatAncestor (repo : System.FilePath) (parent child : Ref)
     : ExceptT (RepoHost.GetFeatureInfo.Error Types) IO Bool :=
@@ -280,15 +322,24 @@ where aux (feat fuel) := do
 
 def createFeature (repo : System.FilePath) (name : String) (parent : Ref)
     : ExceptT (RepoHost.CreateFeature.Error Types) IO Ref := do
-  let parentInfo ← ExceptT.adapt fromFt <| getFeatureInfo repo parent
-  let data : FeatureData := {
-    parent := some parent
-    base := parentInfo.head
-    head := parentInfo.head
-    children := []
-  }
   let newRef ← ExceptT.adapt .invalidName <| Ref.ofString name
-  updateFeatureData repo newRef data none
+  let (_,{head,..}) ← ExceptT.adapt fromFt <| getFeatureData repo parent
+  let childData : FeatureData := {
+      parent := some parent
+      base := head
+      head := head
+      children := []
+    }
+  let .true ← ExceptT.adapt .other <| tryUpdateFeatureData repo newRef childData none
+    | throw (.other s!"{newRef} already exists")
+  -- this runs in a loop until it successfully updates parent
+  updateFeatureData repo parent (fun
+    | none => throw (.other s!"{parent} does not exist")
+    | some parentData => do
+      return some {
+        parentData with children := parentData.children.insert newRef
+      }
+  )
   return newRef
 where
   fromFt : RepoHost.GetFeatureInfo.Error Types → RepoHost.CreateFeature.Error Types

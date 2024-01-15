@@ -18,8 +18,15 @@ structure FeatureInfo (tys : RepoHostTypes) where
 
 namespace FeatureInfo
 
+instance [Repr tys.featId] [Repr tys.commitId] : Repr (FeatureInfo tys) where
+  reprPrec info prec := .group (.nest 1 <| "{" ++ .line ++
+      .group ("parent := " ++ reprPrec info.parent prec ++ ",") ++ .line ++
+      .group ("base := " ++ reprPrec info.base prec ++ ",") ++ .line ++
+      .group ("head := " ++ reprPrec info.head prec ++ ",") ++ .line ++
+    "}")
+
 open Lean in
-instance [ToJson tys.repoId] [ToJson tys.featId] [ToJson tys.commitId]
+instance [ToJson tys.featId] [ToJson tys.commitId]
   : ToJson (FeatureInfo tys) where
   toJson info := Json.mkObj [
     ("parent", toJson info.parent),
@@ -28,7 +35,7 @@ instance [ToJson tys.repoId] [ToJson tys.featId] [ToJson tys.commitId]
   ]
 
 open Lean in
-instance [FromJson tys.repoId] [FromJson tys.featId] [FromJson tys.commitId]
+instance [FromJson tys.featId] [FromJson tys.commitId]
   : FromJson (FeatureInfo tys) where
   fromJson? data := do
     let parent ← data.getObjValAs? _ "parent"
