@@ -1,5 +1,4 @@
-/build
-/lake-packages/*
+/.lake
 
 *.pem
 run_server.sh

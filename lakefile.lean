@@ -20,5 +20,6 @@ lean_exe waterfall {
 }
 
 require Cli from git "http://github.com/mhuisi/lean4-cli.git" @ "nightly"
-require «lean-openapi» from git "http://github.com/JamesGallicchio/lean-openapi" @ "main"
-require socket from git "http://github.com/hargonix/Socket.lean" @ "main"
+--require «lean-openapi» from git "http://github.com/JamesGallicchio/lean-openapi" @ "main"
+--require socket from git "http://github.com/hargonix/Socket.lean" @ "main"
+--require leancolls from git "http://github.com/JamesGallicchio/LeanColls" @ "main"
