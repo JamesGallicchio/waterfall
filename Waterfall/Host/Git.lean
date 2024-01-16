@@ -183,7 +183,7 @@ def getCurRef (root : System.FilePath) : ExceptT String IO Ref := do
 
   Ref.ofString out.stdout.trim
 
-def Ref.toBranch : Ref → Option Ref
+def Ref.branchToFeat : Ref → Option Ref
 | ⟨⟨"refs", _⟩ :: ⟨"heads", _⟩ :: rest,_⟩ =>
   if h : _ then
     some ⟨rest, h⟩
