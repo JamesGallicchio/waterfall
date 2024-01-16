@@ -10,7 +10,7 @@ structure Config where
 
 def updateJwt (c : Config) : IO Unit := do
   let res ← IO.Process.run {
-    cmd:="./jwt",
+    cmd:="jwt",
     args:=#[
       "encode",
       "--alg", "RS256",
