@@ -9,9 +9,10 @@ def startServerCmd : Cmd := `[Cli|
   "Starts the Waterfall GH bot server"
 
   FLAGS:
-    port : Nat; "Localhost port to start server on"
-    "gh-app-id" : String; "The bot's GitHub App ID"
-    "pkey" : String; "Path to private key file (.pem)"
+    port : Nat;                   "Localhost port to start server on"
+    "gh-app-id" : String;         "The bot's GitHub App ID"
+    "pkey" : String;              "Path to private key file (.pem)"
+    "gh-install-id": Nat;         "The ID of an installation of the bot"
   EXTENSIONS:
     require! #["port", "gh-app-id", "pkey"]
 ]
@@ -23,9 +24,9 @@ where run (p : Parsed) : IO UInt32 := do
       else none
     | IO.throwServerError "port is not in range"; return 1
 
-  let ghAppId := p.flag! "gh-app-id" |>.as! String
-  let pkeyPath : System.FilePath :=
-    p.flag! "pkey" |>.as! String
+  let ghAppId                    := p.flag! "gh-app-id" |>.as! String
+  let pkeyPath : System.FilePath := p.flag! "pkey" |>.as! String
+  let ghInstallId                := p.flag! "gh-install-id" |>.as! Nat
 
   if !(← pkeyPath.pathExists) then
     IO.throwServerError s!"path {pkeyPath} does not exist"
@@ -34,11 +35,17 @@ where run (p : Parsed) : IO UInt32 := do
   let c := {
       ghAppId
       ghPrivateKeyPath := pkeyPath
-      jwt := ← IO.mkRef ""
+      ghInstallId
+      jwt   := ← IO.mkRef ""
+      token := ← IO.mkRef ""
     }
 
-  -- since we put bogus info in the jwt ref, update it
+  -- since we put bogus info in the jwt and token ref, update it
   updateJwt c
+  updateToken c
+
+  IO.println "fetching most recent commit of 'T-Brick/waterfall-test'"
+  IO.println (← getHeadCommit c "T-Brick" "waterfall-test")
 
   WebhookHandler.openServer
     (c := c)
