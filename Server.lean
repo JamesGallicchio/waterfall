@@ -1,5 +1,4 @@
-import Waterfall.Server.WebhookHandler
-import Waterfall.Server.GitHubUtils
+import Waterfall.Server
 
 open Waterfall.Server
 
@@ -44,9 +43,21 @@ where run (p : Parsed) : IO UInt32 := do
   updateJwt c
   updateToken c
 
-  -- IO.println "fetching most recent commit of 'T-Brick/waterfall-test'"
-  -- IO.println (← getHeadCommit c "T-Brick" "waterfall-test")
-  IO.println (← getLakeManifest c "T-Brick" "waterfall-test")
+  let tracking : Package.Tracking := ⟨[]⟩
+  let s : Package.Repo.State := ⟨c, tracking⟩
+
+  let waterfall := ⟨"JamesGallicchio", "waterfall"⟩
+  let waterfall_test := ⟨"T-Brick", "waterfall-test"⟩
+
+  -- i messed something up and cant be bothered to debug this rn
+  let (e, s) ← Package.Repo.addNewPackage waterfall
+    (ref? := some "f3ced2ffb0185ce8fd92f01e46e03aeea06985c8") s
+  IO.println e
+  let (e, s) ← Package.Repo.addNewPackage waterfall_test (ref? := none) s
+  IO.println e
+
+  let (e, s) ← Package.Repo.updatePackage waterfall "oogabooga" s
+  IO.println e    -- should see `waterfall-test` as an update candidate
 
   WebhookHandler.openServer
     (c := c)
