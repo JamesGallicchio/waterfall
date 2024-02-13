@@ -44,8 +44,9 @@ where run (p : Parsed) : IO UInt32 := do
   updateJwt c
   updateToken c
 
-  IO.println "fetching most recent commit of 'T-Brick/waterfall-test'"
-  IO.println (← getHeadCommit c "T-Brick" "waterfall-test")
+  -- IO.println "fetching most recent commit of 'T-Brick/waterfall-test'"
+  -- IO.println (← getHeadCommit c "T-Brick" "waterfall-test")
+  IO.println (← getLakeManifest c "T-Brick" "waterfall-test")
 
   WebhookHandler.openServer
     (c := c)

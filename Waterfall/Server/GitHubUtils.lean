@@ -10,18 +10,10 @@ structure Config where
   jwt : IO.Ref String
   token : IO.Ref String
 
-def updateJwt (c : Config) : IO Unit := do
-  let res ← IO.Process.run {
-    cmd:="jwt",
-    args:=
-     #[ "encode"
-      , "--alg", "RS256"
-      , "--exp=+600s"
-      , "--iss", c.ghAppId
-      , "--secret", "@" ++ c.ghPrivateKeyPath.toString
-    ]
-  }
-  c.jwt.set res
+
+private def parser : Http.Parser (Http.Response String) :=
+  Http.Response.parse (Http.Parser.capture (Parser.dropMany Parser.anyToken)
+    |>.map (·.toString))
 
 def request (c : Config) [ToString T] (req : Http.Request T) (use_jwt := false)
     : IO (Http.Response String) := do
@@ -40,9 +32,27 @@ def request (c : Config) [ToString T] (req : Http.Request T) (use_jwt := false)
   match Parser.run parser res with
   | .ok _ res => return res
   | .error e => IO.throwServerError (toString e)
-where parser : Http.Parser (Http.Response String) :=
-  Http.Response.parse (Http.Parser.capture (Parser.dropMany Parser.anyToken)
-    |>.map (·.toString))
+
+-- should this be how we do this or maybe something else?
+def downloadFile (c : Config) (url : String) : IO String := do
+  let curl_res ← IO.Process.run {
+    cmd := "curl"
+    args := #[
+      "-i",
+      "--request", "GET",
+      "--url", s!"{url}",
+      "--header", "Accept: application/vnd.github+json",
+      "--header", s!"Authorization: Bearer {← c.token.get}",
+      "--header", "X-GitHub-Api-Version: 2022-11-28"
+    ]
+  }
+  match Parser.run parser curl_res with
+  | .ok _ res =>
+    match res.status with
+    | ⟨200, _⟩ => return res.body
+    | _ => IO.throwServerError curl_res
+  | .error e => IO.throwServerError (toString e)
+
 
 def getInstallTok (c : Config) : ExceptT String IO String := do
   let req :=
@@ -71,13 +81,28 @@ def getInstallTok (c : Config) : ExceptT String IO String := do
   | .ok (.«422» res) =>
     throw s!"validation error: {res.body}"
 
+
+def updateJwt (c : Config) : IO Unit := do
+  let res ← IO.Process.run {
+    cmd:="jwt",
+    args:=
+     #[ "encode"
+      , "--alg", "RS256"
+      , "--exp=+600s"
+      , "--iss", c.ghAppId
+      , "--secret", "@" ++ c.ghPrivateKeyPath.toString
+    ]
+  }
+  c.jwt.set res
+
 def updateToken (c : Config) : IO Unit := do
   match ← getInstallTok c with
   | .error e => IO.println s!"error updating token: {e}"
   | .ok tok  => c.token.set tok
 
+
 def getHeadCommit (c : Config) (owner repo : String)
-    : ExceptT String IO String := do
+    : ExceptT String IO Lean.Json := do
   let req :=
     GitHub.«repos/get-commit»
       (owner := owner)
@@ -90,10 +115,10 @@ def getHeadCommit (c : Config) (owner repo : String)
   | .error e =>
     throw s!"error processing response: {e}"
   | .ok (.«200» res) =>
-    let commit := ← do
-      let sha ← res.body.getObjVal? "sha"
-      return ← sha.getStr?
-    return commit
+    -- let commit := ← do
+      -- let sha ← res.body.getObjVal? "sha"
+      -- return ← sha.getStr?
+    return res.body
   | .ok (.«404» res) =>
     throw s!"resource not found: {res.body}"
   | .ok (.«422» res) =>
@@ -102,3 +127,35 @@ def getHeadCommit (c : Config) (owner repo : String)
     throw s!"internal error: {res.body}"
   | .ok (.«503» res) =>
     throw s!"service unavailable: {res.body}"
+
+def getLakeManifest (c : Config) (owner repo : String) (ref := "HEAD")
+    : ExceptT String IO Lean.Json := do
+  let req :=
+    GitHub.«repos/get-content»
+      (owner := owner)
+      (repo  := repo)
+      (path  := "lake-manifest.json") -- todo support different locations?
+      (ref   := ref)
+  let res :=
+    GitHub.«repos/get-content».getResponse (← request c req)
+
+  match res with
+  | .error e =>
+    throw s!"error processing response: {e}"
+  | .ok (.«200» res) =>
+    match Lean.Json.parse res.body with
+    | .error e => throw s!"failed to parse response: {e}"
+    | .ok json =>
+      let ty ← (← json.getObjVal? "type").getStr?
+      if ty ≠ "file" then throw s!"`lake-manifest.json` is not a file? {json}"
+
+      let download_url ← (← json.getObjVal? "download_url").getStr?
+      let lake_manifest ← downloadFile c download_url
+      return ← Lean.Json.parse lake_manifest
+
+  | .ok (.«302» res) =>
+    throw s!"found: {res.body}"
+  | .ok (.«403» res) =>
+    throw s!"forbidden: {res.body}"
+  | .ok (.«404» res) =>
+    throw s!"resource not found: {res.body}"
