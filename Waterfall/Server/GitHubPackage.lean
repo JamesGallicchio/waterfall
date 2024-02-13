@@ -15,9 +15,8 @@ deriving Repr, DecidableEq, Hashable
 
 -- todo: Can github repos have `/` in them? how is that represented ???
 def Package.Ident.fromURL (url : String) : Except String Package.Ident := do
-  let url := url
-    |>.dropRightWhile (fun | '/' => true | _ => false)
-    |>.dropSuffix? ".git" |>.getD url
+  let url := url.dropRightWhile (fun | '/' => true | _ => false)
+  let url := url.dropSuffix? ".git" |>.getD url
   let components := url.splitOn "/"
   if let repo :: owner :: _ := components.reverse
   then return ⟨owner.toString, repo.toString⟩
@@ -45,6 +44,10 @@ structure Package where
   rev      : String
   parents  : Array Package.Related
   children : List Package.Related      -- should this come with a rev?
+
+def Package.toString : Package → String
+  | ⟨id, rev, _, _⟩ => s!"{id} @ {rev}"
+instance : ToString Package := ⟨Package.toString⟩
 
 namespace Package
 
@@ -82,8 +85,20 @@ def assemble (c : Config) (owner repo : String) (ref? : Option String := none)
 /- A list for all the packages that waterfall is tracking -/
 structure Tracking where
   listing : List Package
+  failed  : (Package.Ident × String) → Bool
 
-instance : Inhabited Tracking := ⟨⟨[]⟩⟩
+/- These are common repos that we don't want to lookup and will save unnecessary
+      requests.
+ -/
+def Tracking.defaultNoTrack : (Package.Ident × String) → Bool :=
+  fun (id, _rev) =>
+    id.owner = "leanprover"
+    || id = ⟨"mhuisi", "lean4-cli"⟩
+    || id = ⟨"gebner", "quote4"⟩
+    || id = ⟨"fgdorais", "lean4-unicode-basic"⟩
+    || id = ⟨"fgdorais", "lean4-parser"⟩
+
+instance : Inhabited Tracking := ⟨⟨[], Tracking.defaultNoTrack⟩⟩
 
 namespace Tracking
 
@@ -99,7 +114,7 @@ def refreshChildren
     (t : Tracking)
     (f : Package → List Package.Related)
     : Tracking :=
-  ⟨t.listing.map (fun p => { p with children := f p })⟩
+  { t with listing := t.listing.map (fun p => { p with children := f p }) }
 
 end Tracking
 
@@ -122,17 +137,39 @@ def addPackage (pkg : Package) : Repo Unit :=
         | some rel => ⟨pkg.ident, pkg.rev, rel.inherited⟩ :: p.children
         | none     => p.children
       )
-    let tracking := { listing := pkg :: tracking.listing }
+    let tracking := { tracking with listing := pkg :: tracking.listing }
     return (pure (), { s with tracking })
 
-def addNewPackage
+partial def addNewPackage
     (id : Package.Ident)
     (ref? : Option String := none)
     : Repo Unit :=
   fun s => do
-    match ← Package.assemble s.config id.owner id.name ref? with
-    | .error err => return (throw err, s)
-    | .ok pkg    => addPackage pkg s
+    if s.tracking.failed (id, ref?.getD "HEAD") ||
+      (s.tracking.find_with_rev? id (ref?.getD "HEAD")).isSome
+    then return (pure (), s)
+    else
+      match ← Package.assemble s.config id.owner id.name ref? with
+      | .error err => return (throw err, s)
+      | .ok pkg    =>
+        let (e, s) ← pkg.parents.mapM (fun rel =>
+            ExceptT.tryCatch
+              (addNewPackage rel.ident (ref? := rel.rev))
+              (fun err => do
+                IO.println s!"Error when adding package {rel}\n{err}\nSkipping"
+                let s ← get
+                let tracking := { s.tracking with failed :=
+                    fun (id, rev) =>
+                      (id = rel.ident && rev == rel.rev)
+                      || (s.tracking.failed (id, rev))
+                  }
+                set { s with tracking }
+                return ()
+              )
+          ) s
+        match e with
+        | .error err => return (throw err, s)
+        | .ok _      => addPackage pkg s
 
 
 /- Finds packages that are downstream from an updating package and are also
@@ -154,9 +191,12 @@ def updatePackage (id : Package.Ident) (rev : String) : Repo (List Ident) :=
     | none     => return (throw s!"Could not find package {id}", s)
     | some pkg =>
       let candidates := updateCandidates pkg
-      let tracking := ⟨s.tracking.listing.filter (
-          fun p => p.ident ≠ id && p.rev ≠ pkg.rev -- remove old rev
-        )⟩
+      let tracking := { s.tracking with
+        listing :=
+          s.tracking.listing.filter (
+            fun p => p.ident ≠ id && p.rev ≠ pkg.rev -- remove old rev
+          )
+        }
       let (e, s) ← addPackage { pkg with rev } { s with tracking }
       match e with
       | .error err =>

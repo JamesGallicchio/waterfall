@@ -106,6 +106,12 @@ def updateToken (c : Config) : IO Unit := do
 
 def getHeadCommit (c : Config) (owner repo : String)
     : ExceptT String IO Lean.Json := do
+  ExceptT.adapt (fun (e : String) =>
+      s!"Error when getting the HEAD commit:\n\
+        {e}\n\
+        owner: {owner}\n\
+        repo: {repo}\n"
+    ) do
   let req :=
     GitHub.«repos/get-commit»
       (owner := owner)
@@ -128,7 +134,13 @@ def getHeadCommitRev (c : Config) (owner repo : String)
   return sha
 
 def getRepoInfo (c : Config) (owner repo : String)
-    : ExceptT String IO Lean.Json := do
+    : ExceptT String IO Lean.Json :=
+  ExceptT.adapt (fun (e : String) =>
+      s!"Error when getting repo information:\n\
+        {e}\n\
+        owner: {owner}\n\
+        repo: {repo}\n"
+    ) do
   let req := GitHub.«repos/get» (owner := owner) (repo := repo)
   let res := GitHub.«repos/get».getResponse (← request c req)
 
@@ -142,7 +154,15 @@ def getRepoInfo (c : Config) (owner repo : String)
 def getLakeManifest (c : Config) (owner repo : String)
     (ref := "HEAD")
     (path := "lake-manifest.json")
-    : ExceptT String IO Lean.Json := do
+    : ExceptT String IO Lean.Json :=
+  ExceptT.adapt (fun (e : String) =>
+      s!"Error when getting the lake manifest:\n\
+        {e}\n\
+        owner: {owner}\n\
+        repo: {repo}\n\
+        ref: {ref}\n\
+        path: {path}\n"
+    ) do
   let req :=
     GitHub.«repos/get-content»
       (owner := owner)
