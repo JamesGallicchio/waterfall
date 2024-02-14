@@ -47,18 +47,9 @@ where run (p : Parsed) : IO UInt32 := do
 
   let tracking : Package.Tracking := ⟨[], Package.Tracking.defaultNoTrack⟩
   let s : Package.Repo.State := ⟨c, tracking⟩
-
-  let waterfall := ⟨"JamesGallicchio", "waterfall"⟩
-  let waterfall_test := ⟨"T-Brick", "waterfall-test"⟩
-
-  let (e, s) ← Package.Repo.add_new_package waterfall_test (ref? := none) s
+  let (e, s) ← Package.Repo.load (path := "waterfall.json") s
   IO.println e
-  -- IO.println <| "\n".intercalate <| s.tracking.listing.map toString
-
-  let _ ← Package.Repo.save (path := "waterfall.json") s
-
-  let (e, s) ← Package.Repo.update_package waterfall "oogabooga" s
-  IO.println e    -- should see `waterfall-test` as an update candidate
+  IO.println ("\n".intercalate (s.tracking.listing.map toString))
 
   let _ ← WebhookHandler.openServer (port := port) s
 
