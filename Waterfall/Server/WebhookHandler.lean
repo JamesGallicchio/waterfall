@@ -13,6 +13,8 @@ private def SIZE_PACK_CHUNK : USize := .ofNat <|  4 * 2^10 --  4 KB
 open Socket GitHub
 
 def handlePush (json : Lean.Json) : Package.Repo Unit := do
+  IO.println "Push detected!!"
+
   let repository ← json.getObjVal? "repository"
   let full_name ← repository.getObjValAs? String "full_name"
   let ident ← Package.Ident.ofURL full_name
@@ -20,9 +22,10 @@ def handlePush (json : Lean.Json) : Package.Repo Unit := do
   let before ← json.getObjValAs? String "before"
   let after  ← json.getObjValAs? String "after"
 
+
   if ← Package.Repo.has_package ident before then
     let needs_pr ← Package.Repo.update_package ident after
-    sorry
+    IO.println needs_pr
   else return () -- we aren't tracking this package so we don't care
 
 def openServer (port : UInt16) : Package.Repo Unit := do

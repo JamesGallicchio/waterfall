@@ -28,7 +28,10 @@ def Package.Ident.toString : Package.Ident → String
 instance : ToString Package.Ident := ⟨Package.Ident.toString⟩
 
 def Package.Ident.toJson : Package.Ident → Lean.Json
-  | ⟨owner, name⟩ => .mkObj [("owner", .str owner), ("name", .str name)]
+  | ⟨owner, name⟩ => json%
+    { "owner": $owner
+    , "name": $name
+    }
 
 def Package.Ident.ofJson (json : Lean.Json) : Except String Package.Ident := do
   let owner ← json.getObjValAs? String "owner"
@@ -47,8 +50,11 @@ def Package.Related.toString : Package.Related → String
 instance : ToString Package.Related := ⟨Package.Related.toString⟩
 
 def Package.Related.toJson : Package.Related → Lean.Json
-  | ⟨id, rev, inh⟩ =>
-    .mkObj [("id", id.toJson), ("rev", .str rev), ("inherited", .bool inh)]
+  | ⟨id, rev, inh⟩ => json%
+    { "id": $id.toJson
+    , "rev": $rev
+    , "inherited": $inh
+    }
 
 def Package.Related.ofJson (json : Lean.Json)
     : Except String Package.Related := do
@@ -69,12 +75,12 @@ def Package.toString : Package → String
 instance : ToString Package := ⟨Package.toString⟩
 
 def Package.toJson : Package → Lean.Json
-  | ⟨id, rev, parents, children⟩ =>
-    .mkObj [ ("id", id.toJson)
-           , ("rev", .str rev)
-           , ("parents", .arr (parents.map Related.toJson))
-           , ("children", .arr (.mk (children.map Related.toJson)))
-           ]
+  | ⟨id, rev, parents, children⟩ => json%
+    { "id": $id.toJson
+    , "rev": $rev
+    , "parents": $(parents.map Related.toJson)
+    , "children": $(children.map Related.toJson)
+    }
 
 def Package.ofJson (json : Lean.Json)
     : Except String Package := do
@@ -138,10 +144,10 @@ instance : Inhabited Tracking := ⟨⟨[], Tracking.defaultNoTrack⟩⟩
 namespace Tracking
 
 def toJson : Tracking → Lean.Json
-  | ⟨listing, _failed⟩ =>
-    .mkObj [ ("version", waterfallVersion)
-           , ("packages", .arr (.mk <| listing.map Package.toJson))
-           ]
+  | ⟨listing, _failed⟩ => json%
+    { "version": $waterfallVersion
+    , "packages": $(listing.map Package.toJson)
+    }
 
 def ofJson (json : Lean.Json)
     : Except String Tracking := do
@@ -236,16 +242,16 @@ partial def add_new_package
     eligible to do so (not inherited).
  -/
 def update_candidates (pkg : Package)
-    : List Package.Ident :=
+    : List Package.Related :=
   pkg.children.filterMap (fun child =>
-    if ¬child.inherited then some child.ident else none
+    if ¬child.inherited then some child else none
   )
 
 /- Adds the new version of the package, removing the old one. Notably the
     children reference the old revision of the new package. This will be 'fixed'
     when the child package makes an update.
  -/
-def update_package (id : Package.Ident) (rev : String) : Repo (List Ident) :=
+def update_package (id : Package.Ident) (rev : String) : Repo (List Related) :=
   fun s => do
     match s.tracking.find? id with
     | none     => return (throw s!"Could not find package {id}", s)

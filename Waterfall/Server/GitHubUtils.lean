@@ -188,3 +188,29 @@ def getLakeManifest (c : Config) (owner repo : String)
   | .ok (.«403» res) => throw s!"forbidden: {res.body}"
   | .ok (.«404» res) => throw s!"resource not found: {res.body}"
   | .error e         => throw s!"error processing response: {e}"
+
+
+def createCommit (c : Config) (owner repo parent : String)
+    (message := "Waterfall automated commit")
+    (tree := "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321")
+    : ExceptT String IO Lean.Json :=
+  ExceptT.adapt (fun (e : String) =>
+      s!"Error when getting repo information:\n\
+        {e}\n\
+        owner: {owner}\n\
+        repo: {repo}\n"
+    ) do
+  let req := GitHub.«git/create-commit» (owner := owner) (repo := repo)
+    (body := json%
+      { "message": $message
+      , "tree": $tree
+      , "parents": [$(parent)]
+      }
+    )
+  let res := GitHub.«git/create-commit».getResponse (← request c req)
+
+  match res with
+  | .ok (.«201» res) => return res.body
+  | .ok (.«404» res) => throw s!"resource not found: {res.body}"
+  | .ok (.«422» res) => throw s!"validation failed: {res.body}"
+  | .error e         => throw s!"error processing response: {e}"
