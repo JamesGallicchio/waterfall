@@ -1,5 +1,5 @@
 import Waterfall.Server.Event
-import Waterfall.Server.GithubPackage
+import Waterfall.Server.GitHubPackage
 
 import Http
 import Socket
