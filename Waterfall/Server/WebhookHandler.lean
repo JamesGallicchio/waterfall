@@ -1,4 +1,5 @@
 import Waterfall.Server.Event
+import Waterfall.Server.GithubPackage
 
 import Http
 import Socket
@@ -9,9 +10,22 @@ namespace Waterfall.Server.WebhookHandler
 private def SIZE_MAX_PACK   : USize := .ofNat <| 64 * 2^10 -- 64 KB
 private def SIZE_PACK_CHUNK : USize := .ofNat <|  4 * 2^10 --  4 KB
 
-open Socket
+open Socket GitHub
 
-def openServer (c : Config) (port : UInt16) : IO Unit := do
+def handlePush (json : Lean.Json) : Package.Repo Unit := do
+  let repository ← json.getObjVal? "repository"
+  let full_name ← repository.getObjValAs? String "full_name"
+  let ident ← Package.Ident.ofURL full_name
+
+  let before ← json.getObjValAs? String "before"
+  let after  ← json.getObjValAs? String "after"
+
+  if ← Package.Repo.has_package ident before then
+    let needs_pr ← Package.Repo.update_package ident after
+    sorry
+  else return () -- we aren't tracking this package so we don't care
+
+def openServer (port : UInt16) : Package.Repo Unit := do
   let sock ← Socket.mk .inet .stream
   IO.println "Made socket"
   let sa := SockAddr4.v4 (.mk 127 0 0 1) port
@@ -46,9 +60,12 @@ def openServer (c : Config) (port : UInt16) : IO Unit := do
       IO.println "failed to parse HTTP request!"
       IO.println e
     | .ok _s req =>
-    match Lean.Json.parse req.body.toString with
-    | .error e =>
-      IO.println "failed to parse JSON body!"
-      IO.println e
-    | .ok json =>
-      IO.println (json.pretty)
+      match Lean.Json.parse req.body.toString with
+      | .error e =>
+        IO.println "failed to parse JSON body!"
+        IO.println e
+      | .ok json =>
+        match req.headers.find? (.custom (.ofString "X-Github-Event")) with
+        | none       => IO.println "Received unknown packet"
+        | some ["push"] => handlePush json
+        | some event => IO.println s!"Received unknown event(s) {event}"

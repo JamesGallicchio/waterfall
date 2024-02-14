@@ -1,6 +1,8 @@
-import Waterfall.Server
+-- import Waterfall.Server.GitHubUtils
+-- import Waterfall.Server.GithubPackage
+import Waterfall.Server.WebhookHandler
 
-open Waterfall.Server
+open Waterfall.Server GitHub
 
 open Cli in
 def startServerCmd : Cmd := `[Cli|
@@ -11,9 +13,9 @@ def startServerCmd : Cmd := `[Cli|
     port : Nat;                   "Localhost port to start server on"
     "gh-app-id" : String;         "The bot's GitHub App ID"
     "pkey" : String;              "Path to private key file (.pem)"
-    "gh-install-id": Nat;         "The ID of an installation of the bot"
+    "gh-install-id" : Nat;         "The ID of an installation of the bot"
   EXTENSIONS:
-    require! #["port", "gh-app-id", "pkey"]
+    require! #["port", "gh-app-id", "pkey", "gh-install-id"]
 ]
 where run (p : Parsed) : IO UInt32 := do
   let some port :=
@@ -49,20 +51,16 @@ where run (p : Parsed) : IO UInt32 := do
   let waterfall := ⟨"JamesGallicchio", "waterfall"⟩
   let waterfall_test := ⟨"T-Brick", "waterfall-test"⟩
 
-  -- i messed something up and cant be bothered to debug this rn
-  -- let (e, s) ← Package.Repo.addNewPackage waterfall
-    -- (ref? := some "f3ced2ffb0185ce8fd92f01e46e03aeea06985c8") s
-  -- IO.println e
-  let (e, s) ← Package.Repo.addNewPackage waterfall_test (ref? := none) s
+  let (e, s) ← Package.Repo.add_new_package waterfall_test (ref? := none) s
   IO.println e
-  IO.println <| "\n".intercalate <| s.tracking.listing.map toString
+  -- IO.println <| "\n".intercalate <| s.tracking.listing.map toString
 
-  let (e, s) ← Package.Repo.updatePackage waterfall "oogabooga" s
+  let _ ← Package.Repo.save (path := "waterfall.json") s
+
+  let (e, s) ← Package.Repo.update_package waterfall "oogabooga" s
   IO.println e    -- should see `waterfall-test` as an update candidate
 
-  WebhookHandler.openServer
-    (c := c)
-    (port := port)
+  let _ ← WebhookHandler.openServer (port := port) s
 
   return 0
 

@@ -1,7 +1,7 @@
 import Http
 import GitHub
 
-namespace Waterfall.Server
+namespace Waterfall.Server.GitHub
 
 structure Config where
   ghAppId : String
