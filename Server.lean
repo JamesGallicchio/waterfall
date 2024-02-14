@@ -1,7 +1,8 @@
+-- import Waterfall.Server.GitHubUtils
+-- import Waterfall.Server.GithubPackage
 import Waterfall.Server.WebhookHandler
-import Waterfall.Server.GitHubUtils
 
-open Waterfall.Server
+open Waterfall.Server GitHub
 
 open Cli in
 def startServerCmd : Cmd := `[Cli|
@@ -12,9 +13,9 @@ def startServerCmd : Cmd := `[Cli|
     port : Nat;                   "Localhost port to start server on"
     "gh-app-id" : String;         "The bot's GitHub App ID"
     "pkey" : String;              "Path to private key file (.pem)"
-    "gh-install-id": Nat;         "The ID of an installation of the bot"
+    "gh-install-id" : Nat;         "The ID of an installation of the bot"
   EXTENSIONS:
-    require! #["port", "gh-app-id", "pkey"]
+    require! #["port", "gh-app-id", "pkey", "gh-install-id"]
 ]
 where run (p : Parsed) : IO UInt32 := do
   let some port :=
@@ -44,13 +45,13 @@ where run (p : Parsed) : IO UInt32 := do
   updateJwt c
   updateToken c
 
-  -- IO.println "fetching most recent commit of 'T-Brick/waterfall-test'"
-  -- IO.println (← getHeadCommit c "T-Brick" "waterfall-test")
-  IO.println (← getLakeManifest c "T-Brick" "waterfall-test")
+  let tracking : Package.Tracking := ⟨[], Package.Tracking.defaultNoTrack⟩
+  let s : Package.Repo.State := ⟨c, tracking⟩
+  let (e, s) ← Package.Repo.load (path := "waterfall.json") s
+  IO.println e
+  IO.println ("\n".intercalate (s.tracking.listing.map toString))
 
-  WebhookHandler.openServer
-    (c := c)
-    (port := port)
+  let _ ← WebhookHandler.openServer (port := port) s
 
   return 0
 
